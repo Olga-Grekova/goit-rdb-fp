@@ -1,0 +1,152 @@
+#p1
+CREATE SCHEMA pandemic;
+
+USE pandemic;
+
+#p2.1
+SELECT COUNT(*) FROM infectious_cases;
+
+#p2.2
+CREATE TABLE pandemic.countries (
+    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `Entity`    VARCHAR(255) NOT NULL,
+    `Code`      VARCHAR(10)  NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_countries_entity_code (`Entity`, `Code`)
+);
+
+INSERT INTO pandemic.countries (`Entity`, `Code`)
+SELECT DISTINCT `Entity`, `Code`
+FROM pandemic.infectious_cases
+ORDER BY `Entity`;
+
+
+#p2.3
+CREATE TABLE pandemic.cases_normalized (
+    country_id              INT UNSIGNED NOT NULL,
+    `Year`                  SMALLINT     NOT NULL,
+    `Number_yaws`           INT          NULL,
+    `polio_cases`           INT          NULL,
+    `cases_guinea_worm`     INT          NULL,
+    `Number_rabies`         INT          NULL,
+    `Number_malaria`        INT          NULL,
+    `Number_hiv`            INT          NULL,
+    `Number_tuberculosis`   INT          NULL,
+    `Number_smallpox`       INT          NULL,
+    `Number_cholera_cases`  INT          NULL,
+    PRIMARY KEY (country_id, `Year`),
+    CONSTRAINT fk_cases_country 
+        FOREIGN KEY (country_id) REFERENCES pandemic.countries(id)
+);
+
+INSERT INTO pandemic.cases_normalized (
+    country_id, `Year`,
+    `Number_yaws`, `polio_cases`, `cases_guinea_worm`,
+    `Number_rabies`, `Number_malaria`, `Number_hiv`,
+    `Number_tuberculosis`, `Number_smallpox`, `Number_cholera_cases`
+)
+SELECT 
+    c.id,
+    ic.`Year`,
+    NULLIF(ic.`Number_yaws`, ''),
+    NULLIF(ic.`polio_cases`, ''),
+    NULLIF(ic.`cases_guinea_worm`, ''),
+    NULLIF(ic.`Number_rabies`, ''),
+    NULLIF(ic.`Number_malaria`, ''),
+    NULLIF(ic.`Number_hiv`, ''),
+    NULLIF(ic.`Number_tuberculosis`, ''),
+    NULLIF(ic.`Number_smallpox`, ''),
+    NULLIF(ic.`Number_cholera_cases`, '')
+FROM pandemic.infectious_cases ic
+JOIN pandemic.countries c 
+    ON c.`Entity` = ic.`Entity`
+   AND COALESCE(c.`Code`, '') = COALESCE(ic.`Code`, '');
+
+
+#p.3
+SELECT 
+    cn.country_id,
+    c.`Entity`,
+    c.`Code`,
+    AVG(cn.`Number_rabies`) AS avg_rabies,
+    MIN(cn.`Number_rabies`) AS min_rabies,
+    MAX(cn.`Number_rabies`) AS max_rabies,
+    SUM(cn.`Number_rabies`) AS sum_rabies
+FROM pandemic.cases_normalized cn
+JOIN pandemic.countries c ON c.id = cn.country_id
+WHERE cn.`Number_rabies` IS NOT NULL
+GROUP BY cn.country_id, c.`Entity`, c.`Code`
+ORDER BY avg_rabies DESC
+LIMIT 10;
+
+
+#p.4
+SELECT 
+    c.`Entity`,
+    c.`Code`,
+    cn.`Year`,
+    MAKEDATE(cn.`Year`, 1) AS year_date,
+    CURDATE() AS today,
+    TIMESTAMPDIFF(YEAR, MAKEDATE(cn.`Year`, 1), CURDATE()) AS years_diff
+FROM pandemic.cases_normalized cn
+JOIN pandemic.countries c ON c.id = cn.country_id
+LIMIT 10;
+
+
+#p.5
+DROP FUNCTION IF EXISTS pandemic.year_diff;
+
+DELIMITER $$
+
+CREATE FUNCTION pandemic.year_diff(year_value INT)
+RETURNS INT
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE result INT;
+    SET result = TIMESTAMPDIFF(YEAR, MAKEDATE(year_value, 1), CURDATE());
+    RETURN result;
+END$$
+
+DELIMITER ;
+
+SELECT 
+    c.`Entity`,
+    c.`Code`,
+    cn.`Year`,
+    pandemic.year_diff(cn.`Year`) AS years_diff
+FROM pandemic.cases_normalized cn
+JOIN pandemic.countries c ON c.id = cn.country_id
+LIMIT 10;
+
+p.5 - alternate
+DROP FUNCTION IF EXISTS pandemic.cases_per_period;
+
+DELIMITER $$
+
+CREATE FUNCTION pandemic.cases_per_period(
+    cases_per_year DECIMAL(20, 4),
+    divisor INT
+)
+RETURNS DECIMAL(20, 4)
+DETERMINISTIC
+BEGIN
+    IF divisor IS NULL OR divisor = 0 THEN
+        RETURN NULL;
+    END IF;
+    RETURN cases_per_year / divisor;
+END$$
+
+DELIMITER ;
+
+SELECT 
+    c.`Entity`,
+    cn.`Year`,
+    cn.`Number_rabies` AS per_year,
+    pandemic.cases_per_period(cn.`Number_rabies`, 12) AS per_month,
+    pandemic.cases_per_period(cn.`Number_rabies`, 4)  AS per_quarter,
+    pandemic.cases_per_period(cn.`Number_rabies`, 2)  AS per_half_year
+FROM pandemic.cases_normalized cn
+JOIN pandemic.countries c ON c.id = cn.country_id
+WHERE cn.`Number_rabies` IS NOT NULL
+LIMIT 10;
