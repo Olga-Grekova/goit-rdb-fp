@@ -92,6 +92,19 @@ FROM pandemic.cases_normalized cn
 JOIN pandemic.countries c ON c.id = cn.country_id
 LIMIT 10;
 
+#p.4 - fixed
+ALTER TABLE pandemic.cases_normalized
+    ADD COLUMN year_date  DATE NULL AFTER `Year`,
+    ADD COLUMN today_date DATE NULL AFTER year_date,
+    ADD COLUMN years_diff INT  NULL AFTER today_date;
+
+UPDATE pandemic.cases_normalized
+SET 
+    year_date  = MAKEDATE(`Year`, 1),
+    today_date = CURDATE(),
+    years_diff = TIMESTAMPDIFF(YEAR, MAKEDATE(`Year`, 1), CURDATE());
+
+SELECT * FROM pandemic.cases_normalized LIMIT 10;
 
 #p.5
 DROP FUNCTION IF EXISTS pandemic.year_diff;
